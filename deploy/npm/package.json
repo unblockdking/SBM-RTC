@@ -16,7 +16,13 @@
     "test": "node --test --test-concurrency=1 'test/*.test.mjs'",
     "prepack": "npm run build:release",
     "verify:package": "node verify-package.mjs",
-    "verify:bundled": "node verify-package.mjs --artifacts-only --bundled-loader --artifact-dir bundled"
+    "verify:bundled": "node verify-package.mjs --artifacts-only --bundled-loader --artifact-dir bundled",
+    "build:svg": "node build.mjs --svg --bundled-loader --out-dir svg",
+    "build:release:svg": "node build.mjs --release --svg --bundled-loader --out-dir svg",
+    "verify:svg": "node verify-package.mjs --artifacts-only --svg --bundled-loader --artifact-dir svg",
+    "build:svg:cdn": "node build.mjs --svg --out-dir svg-cdn",
+    "build:release:svg:cdn": "node build.mjs --release --svg --out-dir svg-cdn",
+    "verify:svg:cdn": "node verify-package.mjs --artifacts-only --svg --artifact-dir svg-cdn"
   },
   "keywords": [
     "webrtc"

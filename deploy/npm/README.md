@@ -71,3 +71,54 @@ the loader version in this checkout at build time; the bundled carrier does not
 follow an npm dist-tag after upload, so rebuild and redeploy it for each loader
 release. The normal npm package remains the signed-CDN two-file carrier and is
 unchanged by this alternate artifact.
+
+### SVG carrier
+
+The third carrier uses an SVG entry document with a full-window XHTML
+`foreignObject` iframe. The existing HTML shell is embedded as UTF-8/base64;
+its loader integrity checks, UI, and directory-relative service worker
+behavior are retained. The inner document shares the outer SVG client's
+service-worker interface, and shell reloads target the outer SVG. No separate `index.html` is needed.
+
+```sh
+npm run build:svg -w learnmathedu
+# With the same public Firebase configuration used for other release builds:
+npm run build:release:svg -w learnmathedu
+npm run verify:svg -w learnmathedu
+
+# Non-bundled SVG: load the client, font, and worker runtime from CDNs.
+npm run build:svg:cdn -w learnmathedu
+npm run build:release:svg:cdn -w learnmathedu
+npm run verify:svg:cdn -w learnmathedu
+```
+
+| Variant | Output directory | Files to upload |
+| --- | --- | --- |
+| Bundled SVG | `deploy/npm/svg/` | All six files |
+| CDN SVG | `deploy/npm/svg-cdn/` | `index.svg` and `sw.js` |
+
+The CDN SVG contains the bootstrap shell, but no embedded loader client or
+font. Its neighboring `sw.js` imports the worker runtime through the existing
+CDN fallback list. Both variants open directly at `index.svg`.
+
+Upload the contents of `deploy/npm/svg/` to one HTTPS directory, and open
+`index.svg` directly. This includes `sw.js`, the durable recovery `client.js`,
+and the license/source notices. Serve the SVG as
+`image/svg+xml` and the worker as `application/javascript`. Localhost HTTP is
+also supported for testing. The host must allow inline scripts and same-origin
+frames. An SVG displayed through `<img>` will not run the application.
+
+The default SVG scripts bundle the current client, font, and worker, so they
+work without waiting for a loader npm release. Build the loader first with
+`npm run build -w @advwebrec/grainloading` after changing its source.
+The CDN-backed variant requires loader `0.5.5` or newer, which supports the
+`reloadShell` boot callback. Generated SVG output is ignored by Git and is not added to the
+existing npm package.
+
+A single uploaded static SVG cannot install its embedded service worker:
+browsers require a same-origin HTTP(S) worker URL with a JavaScript MIME type;
+`blob:`/`data:` workers and an SVG response do not meet those requirements.
+An image-only upload host therefore cannot host this carrier by itself. Keep
+`sw.js` alongside the SVG. The extra iframe also means cross-origin isolation
+and SharedArrayBuffer availability depend on the host's document/frame headers;
+do not assume an SVG deployment enables SAB games without browser validation.

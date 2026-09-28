@@ -11,11 +11,14 @@ import {
   carrierReleaseFingerprints
 } from "./release-fingerprint.mjs";
 
+import { svgCarrier } from "./src/svg-carrier.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, "../..");
 const release = process.argv.includes("--release");
 const sessionStorageMode = process.env.YURIRTC_SESSION_STORAGE ?? "persistent";
 if (!["persistent", "memory"].includes(sessionStorageMode)) throw new Error("YURIRTC_SESSION_STORAGE must be persistent or memory");
+const svg = process.argv.includes("--svg");
 const bundledLoader = process.argv.includes("--bundled-loader");
 const outputArgument = process.argv.indexOf("--out-dir");
 if (outputArgument >= 0 && !process.argv[outputArgument + 1]) {
@@ -75,7 +78,7 @@ if (testLocalAssetBase && testLocalAssetBase !== "/yurirtc-e2e") {
 }
 const outputDirectory = outputArgument >= 0
   ? resolve(process.cwd(), process.argv[outputArgument + 1])
-  : bundledLoader
+  : svg ? resolve(HERE, bundledLoader ? "svg" : "svg-cdn") : bundledLoader
     ? resolve(HERE, "bundled")
     : HERE;
 await mkdir(outputDirectory, { recursive: true });
@@ -131,7 +134,7 @@ const manifestPublicKey = validatedManifestPublicKey(
 );
 const releaseFingerprints = await carrierReleaseFingerprints(
   browserE2EOnly ? "browser-e2e-only" : release ? "release" : "development",
-  bundledLoader ? "bundled" : "cdn"
+  svg ? (bundledLoader ? "svg-bundled" : "svg") : bundledLoader ? "bundled" : "cdn"
 );
 const loaderDist = resolve(ROOT, "packages/loader/dist");
 const bundledInputs = bundledLoader
@@ -303,6 +306,11 @@ async function buildIndex() {
     throw new Error("index source still contains an unresolved build placeholder");
   }
 
+  if (svg) {
+    html = html.replaceAll("location.reload()", "parent.location.reload()")
+      .replace("await boot({", "await boot({ reloadShell: () => parent.location.reload(),");
+  }
+
   const modulePattern = /(<script\b[^>]*\btype=["']module["'][^>]*>)([\s\S]*?)(<\/script>)/i;
   const moduleMatch = html.match(modulePattern);
   if (!moduleMatch) throw new Error("index source has no inline module");
@@ -353,8 +361,10 @@ async function buildIndex() {
   const testMarker = browserE2EOnly
     ? "\n<!--YURIRTC_BROWSER_E2E_ONLY-->"
     : "";
-  await writeFile(resolve(outputDirectory, "index.html"), `${output}${testMarker}\n`, "utf8");
-  return Buffer.byteLength(output);
+  const document = `${output}${testMarker}\n`;
+  const artifact = svg ? svgCarrier(document) : document;
+  await writeFile(resolve(outputDirectory, svg ? "index.svg" : "index.html"), artifact, "utf8");
+  return Buffer.byteLength(artifact);
 }
 
 async function buildWorker() {
@@ -404,6 +414,6 @@ if (bundledInputs) {
   ]);
 }
 console.log(
-  `built YuriRTC ${bundledLoader ? "bundled " : ""}carrier index.html (${indexBytes} bytes) and sw.js (${workerBytes} bytes)` +
+  `built YuriRTC ${svg ? "SVG " : bundledLoader ? "bundled " : ""}carrier ${svg ? "index.svg" : "index.html"} (${indexBytes} bytes) and sw.js (${workerBytes} bytes)` +
     (release ? " [release]" : " [placeholder config]")
 );

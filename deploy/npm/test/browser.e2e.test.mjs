@@ -90,6 +90,7 @@ export async function boot(options) {
   await activated(registration);
   await controlled();
   window.__YURIRTC_E2E__ = {
+    ...(options.reloadShell ? { reloadShell: options.reloadShell } : {}),
     appPath: options.appPath,
     scope: registration.scope,
     script: registration.active && registration.active.scriptURL
@@ -142,7 +143,7 @@ async function findChromium() {
   return null;
 }
 
-function buildRelease(outputDirectory, { bundled = false } = {}) {
+function buildRelease(outputDirectory, { bundled = false, svg = false } = {}) {
   const arguments_ = [
     "build.mjs",
     "--release",
@@ -151,6 +152,7 @@ function buildRelease(outputDirectory, { bundled = false } = {}) {
     outputDirectory
   ];
   if (bundled) arguments_.push("--bundled-loader");
+  if (svg) arguments_.push("--svg");
   const result = spawnSync(
     process.execPath,
     arguments_,
@@ -176,7 +178,10 @@ async function localServer(indexHtml, serviceWorker) {
     const url = new URL(request.url ?? "/", "http://localhost");
     requests.push(url.pathname);
     response.setHeader("Cache-Control", "no-store");
-    if (url.pathname.endsWith("/index.html")) {
+    if (url.pathname.endsWith("/index.svg")) {
+      response.writeHead(200, { "Content-Type": "image/svg+xml; charset=utf-8" });
+      response.end(indexHtml);
+    } else if (url.pathname.endsWith("/index.html")) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       response.end(indexHtml);
     } else if (url.pathname.endsWith("/sw.js")) {
@@ -832,6 +837,61 @@ test("bundled carrier detects rewritten inline loader bytes without CDN access",
         "rewritten inline bytes must fail before service-worker registration"
       );
     } finally {
+      await context.close();
+    }
+  } finally {
+    await browser?.close();
+    await server?.close();
+    await rm(outputDirectory, { recursive: true, force: true });
+  }
+});
+
+
+test("SVG carrier renders embedded HTML and retains worker scope across reloads", { timeout: 60_000 }, async () => {
+  const executablePath = await findChromium();
+  assert.ok(executablePath, "Chromium is required for SVG validation");
+  const outputDirectory = await mkdtemp(join(tmpdir(), "yurirtc-svg-e2e-"));
+  let browser;
+  let server;
+  try {
+    buildRelease(outputDirectory, { svg: true });
+    server = await localServer(await readFile(join(outputDirectory, "index.svg")), mockWorker);
+    browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+    for (const prefix of ["/", "/bucket/releases/current/"]) {
+      const context = await browser.newContext();
+      await context.route("**/*", async route => {
+        const url = new URL(route.request().url());
+        if (url.origin === server.origin) return route.continue();
+        const headers = { "Access-Control-Allow-Origin": "*" };
+        if (url.pathname.endsWith("/loader.json")) return route.fulfill({ body: mockManifest, contentType: "application/json", headers });
+        if (url.pathname.endsWith("/bundle/client.js")) return route.fulfill({ body: mockClient, contentType: "application/javascript", headers });
+        if (url.pathname.endsWith("/assets/rot13.woff")) return route.fulfill({ body: await readFile(FONT_PATH), contentType: "font/woff", headers });
+        return route.fulfill({ body: "", contentType: "text/css", headers });
+      });
+      const page = await context.newPage();
+      const errors = [];
+      page.on("pageerror", e => errors.push(String(e)));
+      const entry = `${server.origin}${prefix}index.svg`;
+      await page.goto(entry);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await page.waitForSelector("#carrier");
+        const shell = page.frames().find(frame => frame.parentFrame() === page.mainFrame());
+        assert.ok(shell, JSON.stringify({ attempt, errors, frames: page.frames().map(f => f.url()) }));
+        await shell.waitForFunction(() => typeof window.__YURIRTC_E2E_CONTINUE__ === "function");
+        assert.equal(await shell.evaluate(() => location.href), entry);
+        await shell.evaluate(() => window.__YURIRTC_E2E_CONTINUE__());
+        const appHandle = await shell.waitForSelector("#yurirtc-test-frame");
+        const app = await appHandle.contentFrame();
+        await app.waitForSelector('#asset[data-ready="true"]');
+        assert.equal(await app.locator("#asset").textContent(), "service-worker");
+        assert.equal(await shell.evaluate(() => window.__YURIRTC_E2E__.scope), `${server.origin}${prefix}`);
+        assert.equal(page.frames().length, 3);
+        if (!attempt) {
+          await Promise.all([page.waitForEvent("domcontentloaded"), shell.evaluate(() => window.__YURIRTC_E2E__.reloadShell())]);
+        }
+      }
+      assert.deepEqual(errors, []);
+      assert.equal(page.url(), entry);
       await context.close();
     }
   } finally {

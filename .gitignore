@@ -10,6 +10,8 @@ coverage/
 deploy/npm/index.html
 deploy/npm/sw.js
 deploy/npm/bundled/
+deploy/npm/svg/
+deploy/npm/svg-cdn/
 # Per-deployment copies of that generated pair, one directory per destination.
 deploy/npm/deployments/
 .env

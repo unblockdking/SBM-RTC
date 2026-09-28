@@ -9,9 +9,11 @@ import { chromium, firefox, webkit } from "playwright-core";
 const exchangeUrl = process.env.YURIRTC_E2E_EXCHANGE_URL;
 const carrierDir = process.env.YURIRTC_E2E_CARRIER_DIR;
 const carrierVariant = (process.env.YURIRTC_E2E_CARRIER_VARIANT ?? "cdn").trim().toLowerCase();
-assert.ok(carrierVariant === "cdn" || carrierVariant === "bundled",
-  "YURIRTC_E2E_CARRIER_VARIANT must be cdn or bundled");
-const bundledCarrier = carrierVariant === "bundled";
+assert.ok(["cdn", "bundled", "svg", "svg-cdn"].includes(carrierVariant),
+  "YURIRTC_E2E_CARRIER_VARIANT must be cdn, bundled, svg, or svg-cdn");
+const svgCarrier = carrierVariant === "svg" || carrierVariant === "svg-cdn";
+const bundledCarrier = carrierVariant === "bundled" || carrierVariant === "svg";
+const entryPath = svgCarrier ? "/index.svg" : "/index.html";
 const repositoryRoot = process.env.YURIRTC_E2E_REPOSITORY_ROOT;
 const pointerPath = process.env.YURIRTC_E2E_POINTER_PATH;
 const manifestPublicKey = process.env.YURIRTC_E2E_MANIFEST_PUBLIC_KEY;
@@ -52,7 +54,7 @@ const loaderPackage = JSON.parse(
 );
 const loaderVersion = String(loaderPackage.version);
 const [indexHtml, workerStub, clientBundle, workerBundle, displayFont, signedPointer, durableClient] = await Promise.all([
-  readFile(join(carrierDir, "index.html")),
+  readFile(join(carrierDir, entryPath.slice(1))),
   readFile(join(carrierDir, "sw.js")),
   readFile(join(repositoryRoot, "packages", "loader", "dist", "bundle", "client.js")),
   readFile(join(repositoryRoot, "packages", "loader", "dist", "bundle", "sw.js")),
@@ -252,8 +254,8 @@ const server = createServer((request, response) => {
     response.end();
     return;
   }
-  if (url.pathname === "/index.html") {
-    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  if (url.pathname === entryPath) {
+    response.writeHead(200, { "Content-Type": svgCarrier ? "image/svg+xml" : "text/html; charset=utf-8" });
     response.end(indexHtml);
     return;
   }
@@ -510,14 +512,16 @@ try {
     if (response.status() >= 400) httpErrors.push(`${response.status()} ${response.url()}`);
   });
 
-  await page.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => document.title === "learnmathedu");
+  await page.goto(`${origin}${entryPath}`, { waitUntil: "domcontentloaded" });
+  if (svgCarrier) await page.waitForFunction(() => document.getElementById("carrier")?.contentWindow?.document.querySelector("iframe"));
+  const shell = svgCarrier ? page.frames().find(frame => frame.parentFrame() === page.mainFrame()) : page;
+  await shell.waitForFunction(() => document.title === "learnmathedu");
   let frameElement;
   try {
-    frameElement = await page.waitForSelector("iframe");
+    frameElement = await shell.waitForSelector("iframe");
   } catch (error) {
-    const snapshot = await page.locator("body").innerText().catch(() => "<unreadable>");
-    const loaderError = await page.locator("[data-yurirtc-loader-error]").evaluate((element, expected) => ({
+    const snapshot = await shell.locator("body").innerText().catch(() => "<unreadable>");
+    const loaderError = await shell.locator("[data-yurirtc-loader-error]").evaluate((element, expected) => ({
       error: element.dataset.yurirtcLoaderError,
       stage: element.dataset.yurirtcLoaderIntegrityStage,
       reason: element.dataset.yurirtcLoaderIntegrityReason,
@@ -529,7 +533,7 @@ try {
       key: manifestPublicKey,
       fingerprint: createHash("sha256").update(signedPointer).digest("base64url")
     }).catch(() => undefined);
-    const directSignatureCheck = await page.evaluate(async ({ pointerText, expectedKey }) => {
+    const directSignatureCheck = await shell.evaluate(async ({ pointerText, expectedKey }) => {
       const decode = (value) => {
         const padded = value.replace(/-/g, "+").replace(/_/g, "/") +
           "===".slice((value.length + 3) % 4);
@@ -636,14 +640,16 @@ try {
   secondPage.on("response", (response) => {
     if (response.status() >= 400) httpErrors.push(`${response.status()} ${response.url()}`);
   });
-  await secondPage.goto(`${origin}/index.html`, { waitUntil: "domcontentloaded" });
-  await secondPage.waitForFunction(() => document.title === "learnmathedu");
+  await secondPage.goto(`${origin}${entryPath}`, { waitUntil: "domcontentloaded" });
+  if (svgCarrier) await secondPage.waitForFunction(() => document.getElementById("carrier")?.contentWindow?.document.querySelector("iframe"));
+  const secondShell = svgCarrier ? secondPage.frames().find(frame => frame.parentFrame() === secondPage.mainFrame()) : secondPage;
+  await secondShell.waitForFunction(() => document.title === "learnmathedu");
   let secondFrameElement;
   try {
-    secondFrameElement = await secondPage.waitForSelector("iframe");
+    secondFrameElement = await secondShell.waitForSelector("iframe");
   } catch (error) {
-    const snapshot = await secondPage.locator("body").innerText().catch(() => "<unreadable>");
-    const state = await secondPage.locator("[data-yurirtc-loader-error], [data-yurirtc-network]")
+    const snapshot = await secondShell.locator("body").innerText().catch(() => "<unreadable>");
+    const state = await secondShell.locator("[data-yurirtc-loader-error], [data-yurirtc-network]")
       .evaluateAll((elements) => elements.map((element) => ({ ...element.dataset })))
       .catch(() => []);
     throw new Error(`standby loader did not mount its frame: ${JSON.stringify({
@@ -706,7 +712,7 @@ try {
     secondOutcome.text || "standby-tab transport fixture failed without a message"
   );
   const metrics = outcome.metrics;
-  const selectedProtocol = await page.locator("[data-yurirtc-network]").evaluate(
+  const selectedProtocol = await shell.locator("[data-yurirtc-network]").evaluate(
     (element) => element.dataset.yurirtcNetworkTier?.split("-")[0] ?? "unknown"
   );
   if (forcedProtocol !== "all") {
@@ -724,7 +730,7 @@ try {
     JSON.stringify({ consoleErrors, httpErrors })
   );
   if (bundledCarrier) {
-    const durableModule = await page.evaluate(async (url) => {
+    const durableModule = await shell.evaluate(async (url) => {
       const loaded = await import(url);
       return {
         client: typeof loaded.YuriRTCClient,
@@ -743,7 +749,7 @@ try {
     assert.equal(requested.font, 0, "bundled carrier fetched the loader font route");
     assert.ok(requested.recoveryClient > 0,
       "transported documents did not use the durable same-origin recovery client");
-    const persisted = await page.evaluate(() => new Promise((resolve, reject) => {
+    const persisted = await shell.evaluate(() => new Promise((resolve, reject) => {
       const opened = indexedDB.open("edurocks-loader-config", 1);
       opened.onerror = () => reject(opened.error ?? new Error("bootstrap database open failed"));
       opened.onsuccess = () => {
@@ -776,11 +782,11 @@ try {
   assert.ok(requested.icons > 0, "the hosted Material Symbols stylesheet was not requested");
   assert.ok(requested.firestore >= 4, "both real loader tabs did not exchange signaling offers");
   assert.deepEqual(unexpectedRequests, [], "an external request escaped the deterministic E2E mocks");
-  assert.ok(carrierRequests.includes("/index.html"), "the generated carrier was not served");
+  assert.ok(carrierRequests.includes(entryPath), "the generated carrier was not served");
   assert.ok(carrierRequests.includes("/sw.js"), "the generated worker stub was not served");
   assert.ok(
     carrierRequests.every((path) =>
-      path === "/index.html" ||
+      path === entryPath ||
       path === "/sw.js" ||
       (bundledCarrier && path === "/client.js") ||
       path === "/favicon.ico" ||

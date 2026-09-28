@@ -2,6 +2,13 @@
 
 This project records user-visible transport, compatibility, deployment, and security changes here. Version numbers for the published npm packages may advance independently.
 
+## Loader 0.5.5 / signed pointer 1.0.4
+
+- Added an optional `reloadShell` boot callback so SVG carriers reload their
+  outer document during service-worker isolation setup.
+- Added bundled and CDN-backed SVG carriers, separate build outputs, artifact
+  verification, and browser transport coverage.
+
 ## Unreleased
 
 ### Licensing

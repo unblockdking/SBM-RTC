@@ -48,6 +48,8 @@ export interface BootOptions extends YuriRTCConfig {
    * the loader runs from whatever directory it was uploaded to.
    */
   swUrl?: string;
+  /** Reload the containing shell when booting inside an embedded SVG document. */
+  reloadShell?: () => void;
   /**
    * Where to mount the app frame. When given, the loader page stays put and
    * hosts the site in an iframe instead of navigating to it.
@@ -158,7 +160,7 @@ export async function boot(options: BootOptions): Promise<YuriRTCClient> {
       alreadyReloaded = true;
     }
     if (!alreadyReloaded) {
-      location.reload();
+      (options.reloadShell ?? (() => location.reload()))();
       await new Promise<never>(() => undefined);
     }
   } else {

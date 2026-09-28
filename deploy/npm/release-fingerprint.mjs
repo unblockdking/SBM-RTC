@@ -29,11 +29,12 @@ export function bundledCarrierSourceNotice(loaderVersion) {
 
 /** Opaque stamps that prove ignored build products match their exact sources. */
 export async function carrierReleaseFingerprints(mode = "release", variant = "cdn") {
-  if (variant !== "cdn" && variant !== "bundled") {
+  if (!["cdn", "bundled", "svg", "svg-bundled"].includes(variant)) {
     throw new Error(`unsupported carrier fingerprint variant ${variant}`);
   }
   const commonInputs = await Promise.all([
     readFile(resolve(HERE, "build.mjs")),
+    readFile(resolve(HERE, "src/svg-carrier.mjs")),
     readFile(resolve(HERE, "release-fingerprint.mjs")),
     readFile(resolve(HERE, "src/index.html")),
     readFile(resolve(HERE, "src/integrity-loader.mjs")),
@@ -44,7 +45,7 @@ export async function carrierReleaseFingerprints(mode = "release", variant = "cd
     readFile(resolve(ROOT, "packages/protocol/src/cdn.ts")),
     readFile(resolve(ROOT, "package-lock.json"))
   ]);
-  const inputs = variant === "bundled"
+  const inputs = variant === "bundled" || variant === "svg-bundled"
     ? commonInputs.concat(await Promise.all([
         readFile(resolve(ROOT, "packages/loader/dist/bundle/client.js")),
         readFile(resolve(ROOT, "packages/loader/dist/bundle/sw.js")),
@@ -53,7 +54,7 @@ export async function carrierReleaseFingerprints(mode = "release", variant = "cd
         readFile(resolve(ROOT, "LICENSE"))
       ]))
     : commonInputs;
-  const label = variant === "bundled" ? `${mode}:bundled` : mode;
+  const label = variant === "cdn" ? mode : `${mode}:${variant}`;
   return {
     index: digest(`${label}:index`, inputs),
     worker: digest(`${label}:worker`, inputs)

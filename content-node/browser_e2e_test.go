@@ -55,6 +55,8 @@ func TestBrowserV3EndToEnd(t *testing.T) {
 	repositoryRoot := filepath.Clean(filepath.Join(contentNodeDir, ".."))
 	carrierDir := t.TempDir()
 	bundledCarrierDir := t.TempDir()
+	svgCarrierDir := t.TempDir()
+	svgCDNCarrierDir := t.TempDir()
 	pointerPath := filepath.Join(t.TempDir(), "loader.json")
 	manifestPrivateKey, manifestPublicKey := browserE2EManifestKeys(t)
 	testManifestEnvironment := []string{
@@ -749,8 +751,28 @@ try {
 		"YURIRTC_FIREBASE_PROJECT_ID=browser-e2e-project",
 		"YURIRTC_FIREBASE_DATABASE_URL=https://browser-e2e.invalid",
 	}, testManifestEnvironment...), "node", "deploy/npm/build.mjs", "--release",
+		"--svg", "--out-dir", svgCDNCarrierDir,
+		"--test-worker-cdn-base", "/npm/@advwebrec/grainloading",
+		"--test-firestore-base-url", firestoreBaseURL,
+		"--test-local-asset-base", "/yurirtc-e2e",
+		"--test-manifest-public-key")
+	runBrowserE2ECommand(t, repositoryRoot, append([]string{
+		"YURIRTC_FIREBASE_API_KEY=browser-e2e-public-key",
+		"YURIRTC_FIREBASE_PROJECT_ID=browser-e2e-project",
+		"YURIRTC_FIREBASE_DATABASE_URL=https://browser-e2e.invalid",
+	}, testManifestEnvironment...), "node", "deploy/npm/build.mjs", "--release",
 		"--bundled-loader",
 		"--out-dir", bundledCarrierDir,
+		"--test-firestore-base-url", firestoreBaseURL,
+		"--test-local-asset-base", "/yurirtc-e2e",
+		"--test-manifest-public-key")
+	runBrowserE2ECommand(t, repositoryRoot, append([]string{
+		"YURIRTC_FIREBASE_API_KEY=browser-e2e-public-key",
+		"YURIRTC_FIREBASE_PROJECT_ID=browser-e2e-project",
+		"YURIRTC_FIREBASE_DATABASE_URL=https://browser-e2e.invalid",
+	}, testManifestEnvironment...), "node", "deploy/npm/build.mjs", "--release",
+		"--bundled-loader", "--svg",
+		"--out-dir", svgCarrierDir,
 		"--test-firestore-base-url", firestoreBaseURL,
 		"--test-local-asset-base", "/yurirtc-e2e",
 		"--test-manifest-public-key")
@@ -768,6 +790,8 @@ try {
 					}{
 						{name: "cdn", dir: carrierDir},
 						{name: "bundled", dir: bundledCarrierDir},
+						{name: "svg", dir: svgCarrierDir},
+						{name: "svg-cdn", dir: svgCDNCarrierDir},
 					}
 					for _, variant := range variants {
 						variant := variant

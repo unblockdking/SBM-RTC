@@ -80,7 +80,7 @@ during an upload to verify first-carrier/standby election:
 npm run test:e2e
 ```
 
-The self-hosted gate runs both the signed-CDN and bundled-loader carriers in
+The self-hosted gate runs the signed-CDN, bundled-loader, and SVG carriers in
 Chromium, Firefox, and WebKit over both UDP and TCP. For an explicit local
 cross-browser run:
 
@@ -117,7 +117,13 @@ npm run verify:release
 
 That command generates the normal pair at `deploy/npm/index.html` and
 `deploy/npm/sw.js`, plus the CDN-independent variant under
-`deploy/npm/bundled/`. The alternate HTML carries the exact current loader and
+`deploy/npm/bundled/` and the SVG carrier under `deploy/npm/svg/`.
+The SVG embeds the shell, client, and font in `index.svg`, with a same-origin
+worker and recovery client alongside it. Upload all six files from that directory
+and open the SVG directly. The non-bundled SVG is generated separately at
+`deploy/npm/svg-cdn/`; upload its `index.svg` and `sw.js` together.
+See [SVG hosting instructions](deploy/npm/README.md#svg-carrier).
+The alternate HTML carries the exact current loader and
 font inline; its same-version full `sw.js` and durable `client.js` remain
 same-origin. Upload every file in that directory together. These are build
 products; edit the readable files under `deploy/npm/src` instead. The

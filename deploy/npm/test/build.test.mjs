@@ -347,3 +347,25 @@ test("ROT13 source copy decodes to the intended visible labels", () => {
   assert.equal(rot13("Ybnqre vagrtevgl pbhyq abg or irevsvrq."), "Loader integrity could not be verified.");
   assert.equal(rot13("Ybnqre haninvynoyr"), "Loader unavailable");
 });
+
+test("SVG release verification checks both embedded shell and wrapper", async () => {
+  const temporary = await mkdtemp(join(tmpdir(), "yurirtc-svg-static-test-"));
+  try {
+    const built = spawnSync(process.execPath, ["build.mjs", "--release", "--svg", "--bundled-loader", "--out-dir", temporary], {
+      cwd: HERE, encoding: "utf8", env: { ...process.env,
+        YURIRTC_FIREBASE_API_KEY: "test-public-api-key",
+        YURIRTC_FIREBASE_PROJECT_ID: "example-project",
+        YURIRTC_FIREBASE_DATABASE_URL: "https://example-project.firebaseio.test"
+      }
+    });
+    assert.equal(built.status, 0, built.stderr || built.stdout);
+    const verify = () => spawnSync(process.execPath, ["verify-package.mjs", "--artifacts-only", "--svg", "--bundled-loader", "--artifact-dir", temporary], { cwd: HERE, encoding: "utf8" });
+    const valid = verify();
+    assert.equal(valid.status, 0, valid.stderr || valid.stdout);
+    const svg = await readFile(join(temporary, "index.svg"), "utf8");
+    await writeFile(join(temporary, "index.svg"), svg.replace('doc.close();', 'doc.close(); alert(1);'));
+    assert.notEqual(verify().status, 0, "modified SVG wrapper must fail verification");
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});

@@ -8,6 +8,8 @@ import {
   carrierReleaseFingerprints
 } from "./release-fingerprint.mjs";
 
+import { svgCarrierHtml } from "./src/svg-carrier.mjs";
+
 const HERE = import.meta.dirname;
 const ROOT = resolve(HERE, "../..");
 const artifactArgument = process.argv.indexOf("--artifact-dir");
@@ -18,24 +20,25 @@ const artifactDirectory = artifactArgument >= 0
   ? resolve(process.cwd(), process.argv[artifactArgument + 1])
   : HERE;
 const artifactsOnly = process.argv.includes("--artifacts-only");
+const svg = process.argv.includes("--svg");
 const bundledLoader = process.argv.includes("--bundled-loader");
-if (bundledLoader && !artifactsOnly) {
-  throw new Error("--bundled-loader verifies a standalone artifact directory and requires --artifacts-only");
+if ((svg || bundledLoader) && !artifactsOnly) {
+  throw new Error("SVG/bundled variants verify a standalone artifact directory and require --artifacts-only");
 }
 const expected = bundledLoader
-  ? new Set(["index.html", "sw.js", "client.js", "LICENSE", "FONT-LICENSE.txt", "SOURCE.txt"])
-  : new Set(["README.md", "package.json", "index.html", "sw.js"]);
+  ? new Set([svg ? "index.svg" : "index.html", "sw.js", "client.js", "LICENSE", "FONT-LICENSE.txt", "SOURCE.txt"])
+  : svg ? new Set(["index.svg", "sw.js"]) : new Set(["README.md", "package.json", "index.html", "sw.js"]);
 let files = expected;
-if (bundledLoader) {
+if (svg || bundledLoader) {
   files = new Set((await readdir(artifactDirectory, { withFileTypes: true })).map((entry) => {
-    if (!entry.isFile()) throw new Error(`bundled carrier contains unexpected directory ${entry.name}`);
+    if (!entry.isFile()) throw new Error(`standalone carrier contains unexpected directory ${entry.name}`);
     return entry.name;
   }));
   for (const path of expected) {
-    if (!files.has(path)) throw new Error(`bundled carrier is missing ${path}`);
+    if (!files.has(path)) throw new Error(`standalone carrier is missing ${path}`);
   }
   for (const path of files) {
-    if (!expected.has(path)) throw new Error(`bundled carrier contains unexpected file ${path}`);
+    if (!expected.has(path)) throw new Error(`standalone carrier contains unexpected file ${path}`);
   }
 }
 if (!artifactsOnly) {
@@ -54,14 +57,16 @@ if (!artifactsOnly) {
   }
 }
 
-const html = await readFile(resolve(artifactDirectory, "index.html"), "utf8");
+const html = svg
+  ? svgCarrierHtml(await readFile(resolve(artifactDirectory, "index.svg"), "utf8"))
+  : await readFile(resolve(artifactDirectory, "index.html"), "utf8");
 const worker = await readFile(resolve(artifactDirectory, "sw.js"), "utf8");
 if ((html + worker).includes("YURIRTC_BROWSER_E2E_ONLY")) {
   throw new Error("static package contains browser-E2E-only source");
 }
 const fingerprints = await carrierReleaseFingerprints(
   "release",
-  bundledLoader ? "bundled" : "cdn"
+  svg ? (bundledLoader ? "svg-bundled" : "svg") : bundledLoader ? "bundled" : "cdn"
 );
 if (!html.includes(fingerprints.index) || !worker.includes(fingerprints.worker)) {
   throw new Error("static package contains stale generated artifacts; rebuild index.html and sw.js");
